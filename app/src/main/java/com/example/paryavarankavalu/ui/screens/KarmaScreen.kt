@@ -258,11 +258,11 @@ fun KarmaScreen() {
                         color      = GreenDark
                     )
                     Spacer(Modifier.height(10.dp))
-                    PointsInfoRow("📸", "Submit any report",              "+10 pts")
-                    PointsInfoRow("🔥", "Report is HIGH severity",        "+15 bonus")
-                    PointsInfoRow("📅", "First report of the day",        "+5 streak")
-                    PointsInfoRow("✅", "Your spot gets cleaned",         "+25 pts")
-                    PointsInfoRow("🏅", "10 reports milestone",           "+50 pts")
+                    PointsInfoRow("📍", "Submit any report",          "+10 pts")
+                    PointsInfoRow("🔺", "Report is HIGH severity",    "+15 bonus")
+                    PointsInfoRow("⭐", "First report of the day",    "+5 streak")
+                    PointsInfoRow("♻️", "Your spot gets cleaned",     "+25 pts")
+                    PointsInfoRow("🏆", "10 reports milestone",       "+50 pts")
                 }
             }
         }

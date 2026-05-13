@@ -55,10 +55,21 @@ fun HomeScreen(navController: NavHostController) {
 
     var selectedFilter by remember { mutableStateOf("All") }
 
+    // ✅ Track permission state — drives MapProperties safely
+    var locationPermissionGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
     // ── Permission launcher ───────────────────────────────────
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
+        locationPermissionGranted = granted   // ✅ update state — no crash
         if (granted) {
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                 location?.let {
@@ -72,11 +83,8 @@ fun HomeScreen(navController: NavHostController) {
 
     // ── GPS fetch on launch ───────────────────────────────────
     LaunchedEffect(Unit) {
-        val granted = ContextCompat.checkSelfPermission(
-            context, Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (granted) {
+        if (locationPermissionGranted) {
+            // Already granted — just fetch location
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                 location?.let {
                     currentLocation = LatLng(it.latitude, it.longitude)
@@ -85,13 +93,12 @@ fun HomeScreen(navController: NavHostController) {
                 }
             }
         } else {
+            // Not granted yet — ask
             permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
 
     // ── Firestore real-time listener ──────────────────────────
-    // DisposableEffect properly removes the listener when screen
-    // leaves composition — prevents memory leaks & ghost updates
     DisposableEffect(Unit) {
         val registration = FirestoreRepository.listenToReports { firestoreDocs ->
 
@@ -102,11 +109,10 @@ fun HomeScreen(navController: NavHostController) {
                 val severity = doc["severity"] as? String ?: "LOW"
                 val status   = doc["status"]   as? String ?: "Pending"
                 val address  = doc["address"]  as? String ?: ""
-                val docId    = doc["docId"]    as? String ?: ""  // ✅ needed for markCleaned
+                val docId    = doc["docId"]    as? String ?: ""
 
                 if (lat == 0.0 || lng == 0.0) return@forEach
 
-                // Check if this report already exists locally
                 val existingIndex = ReportStore.reports.indexOfFirst { local ->
                     local.lat == lat &&
                             local.lng == lng &&
@@ -114,7 +120,7 @@ fun HomeScreen(navController: NavHostController) {
                 }
 
                 if (existingIndex == -1) {
-                    // ✅ New report — add it with docId
+                    // New report — add to local store
                     val report = Report(
                         imageUri = null,
                         category = category,
@@ -122,14 +128,11 @@ fun HomeScreen(navController: NavHostController) {
                         lat      = lat,
                         lng      = lng,
                         address  = address,
-                        docId    = docId        // ✅ stored so markCleaned can update Firestore
+                        docId    = docId
                     ).apply { this.status = status }
-
                     ReportStore.reports.add(report)
-
                 } else {
-                    // ✅ Report exists — sync status from Firestore
-                    // This is what makes "Cleaned" persist after restart
+                    // Existing report — sync status from Firestore
                     if (ReportStore.reports[existingIndex].status != status) {
                         ReportStore.reports[existingIndex].status = status
                     }
@@ -137,7 +140,6 @@ fun HomeScreen(navController: NavHostController) {
             }
         }
 
-        // Remove Firestore listener when screen leaves composition
         onDispose { registration.remove() }
     }
 
@@ -223,12 +225,16 @@ fun HomeScreen(navController: NavHostController) {
             GoogleMap(
                 modifier            = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
-                properties          = MapProperties(isMyLocationEnabled = true)
+                // ✅ KEY FIX — only enable isMyLocationEnabled
+                // when permission is actually granted.
+                // Hardcoding true here = crash on first install.
+                properties          = MapProperties(
+                    isMyLocationEnabled = locationPermissionGranted
+                )
             ) {
                 filteredReports.forEach { report ->
                     if (report.lat != 0.0 && report.lng != 0.0) {
 
-                        // 🔴 Pending = RED  |  🟢 Cleaned = GREEN
                         val pinColor = when (report.status) {
                             "Cleaned" -> BitmapDescriptorFactory.HUE_GREEN
                             else      -> BitmapDescriptorFactory.HUE_RED
@@ -246,6 +252,50 @@ fun HomeScreen(navController: NavHostController) {
                             snippet = "$severityEmoji ${report.severity} · ${report.status}",
                             icon    = BitmapDescriptorFactory.defaultMarker(pinColor)
                         )
+                    }
+                }
+            }
+
+            // ── No permission banner ──────────────────────────
+            if (!locationPermissionGranted) {
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(12.dp)
+                        .fillMaxWidth(),
+                    shape  = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFFFFEBEE)
+                    )
+                ) {
+                    Row(
+                        modifier              = Modifier.padding(12.dp),
+                        verticalAlignment     = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("📍", fontSize = 18.sp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Location permission needed",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize   = 13.sp,
+                                color      = Color(0xFFB71C1C)
+                            )
+                            Text(
+                                "Tap to grant access",
+                                fontSize = 12.sp,
+                                color    = Color.Gray
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                permissionLauncher.launch(
+                                    Manifest.permission.ACCESS_FINE_LOCATION
+                                )
+                            }
+                        ) {
+                            Text("Grant", color = GreenPrimary, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -308,7 +358,7 @@ fun HomeScreen(navController: NavHostController) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Filter Button with count badge
+// Filter Button
 // ─────────────────────────────────────────────────────────────
 @Composable
 fun FilterButton(

@@ -1,5 +1,7 @@
 package com.example.paryavarankavalu.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,438 +12,350 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.paryavarankavalu.data.ReportStore
 import com.example.paryavarankavalu.model.Report
 
-private val GreenDark = Color(0xFF14532D)
+// ── Colors ────────────────────────────────────────────────────
+private val GreenDark    = Color(0xFF14532D)
 private val GreenPrimary = Color(0xFF2E7D32)
-private val GreenLight = Color(0xFFB9F6A5)
-
-private val CreamBg = Color(0xFFF8F5F0)
-private val CardBg = Color.White
-
-private val RedSoft = Color(0xFFFFD6D6)
-private val YellowSoft = Color(0xFFFFEDB5)
+private val GreenLight   = Color(0xFFB9F6A5)
+private val CreamBg      = Color(0xFFF8F5F0)
+private val CardBg       = Color.White
+private val RedSoft      = Color(0xFFFFD6D6)
+private val YellowSoft   = Color(0xFFFFEDB5)
 
 @Composable
 fun DashboardScreen() {
 
-    val reports = ReportStore.reports
+    val allReports   = ReportStore.reports
+
+    // ✅ Fix 1 — only show PENDING reports on dashboard
+    // Cleaned reports go to map (green pin) — not shown here
+    val pendingReports = allReports.filter { it.status == "Pending" }
+    val cleanedCount   = allReports.count  { it.status == "Cleaned" }
+    val totalCount     = allReports.size
+
+    // Weekly progress — real number from store
+    val weeklyProgress = if (totalCount > 0)
+        cleanedCount.toFloat() / totalCount.toFloat()
+    else 0f
 
     LazyColumn(
-
         modifier = Modifier
             .fillMaxSize()
             .background(CreamBg)
             .padding(horizontal = 16.dp),
-
-        verticalArrangement =
-            Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
 
+        // ── Header ────────────────────────────────────────────
         item {
-
-            Spacer(
-                modifier = Modifier.height(16.dp)
-            )
-
+            Spacer(Modifier.height(16.dp))
             DashboardHeader()
         }
 
-        items(reports) { report ->
-
-            VolunteerReportCard(report)
+        // ── Empty state ───────────────────────────────────────
+        if (pendingReports.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape    = RoundedCornerShape(20.dp),
+                    colors   = CardDefaults.cardColors(containerColor = CardBg)
+                ) {
+                    Column(
+                        modifier            = Modifier
+                            .fillMaxWidth()
+                            .padding(40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("🌿", fontSize = 48.sp)
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "All clear!",
+                            fontWeight = FontWeight.Bold,
+                            fontSize   = 18.sp,
+                            color      = GreenDark
+                        )
+                        Text(
+                            "No pending reports in your area.",
+                            color     = Color.Gray,
+                            fontSize  = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
         }
 
+        // ── Pending report cards ───────────────────────────────
+        items(pendingReports) { report ->
+            VolunteerReportCard(report = report)
+        }
+
+        // ── Weekly progress card ───────────────────────────────
         item {
-
-            WeeklyProgressCard()
-
-            Spacer(
-                modifier = Modifier.height(20.dp)
+            WeeklyProgressCard(
+                cleanedCount   = cleanedCount,
+                weeklyProgress = weeklyProgress
             )
+            Spacer(Modifier.height(20.dp))
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Dashboard Header
+// ─────────────────────────────────────────────────────────────
 @Composable
 fun DashboardHeader() {
-
     Row(
-
-        modifier = Modifier.fillMaxWidth(),
-
-        horizontalArrangement =
-            Arrangement.SpaceBetween,
-
-        verticalAlignment =
-            Alignment.CenterVertically
+        modifier              = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment     = Alignment.CenterVertically
     ) {
-
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-
-                text = "Volunteer Dashboard",
-
-                fontSize = 28.sp,
-
+                "Volunteer Dashboard",
+                fontSize   = 26.sp,
                 fontWeight = FontWeight.Bold,
-
-                color = GreenDark
+                color      = GreenDark
             )
-
-            Spacer(
-                modifier = Modifier.height(4.dp)
-            )
-
+            Spacer(Modifier.height(4.dp))
             Text(
-
-                text =
-                    "Welcome back, Guardian. Here are the active reports in your vicinity.",
-
-                color = Color.Gray,
-
-                fontSize = 13.sp,
-
+                "Active pending reports in your area",
+                color      = Color.Gray,
+                fontSize   = 13.sp,
                 lineHeight = 18.sp
             )
         }
-
-        Surface(
-
-            shape = CircleShape,
-
-            color = Color.White,
-
-            tonalElevation = 2.dp
-        ) {
-
-            Box(
-
-                modifier = Modifier.size(44.dp),
-
-                contentAlignment = Alignment.Center
-            ) {
-
-                Icon(
-
-                    imageVector = Icons.Default.Person,
-
-                    contentDescription = null,
-
-                    tint = GreenDark
-                )
+        Surface(shape = CircleShape, color = Color.White, tonalElevation = 2.dp) {
+            Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = GreenDark)
             }
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Report Card
+// ─────────────────────────────────────────────────────────────
 @Composable
-fun VolunteerReportCard(
-    report: Report
-) {
+fun VolunteerReportCard(report: Report) {
 
-    val severityColor =
+    // ✅ Fix 2 — animate button color when marked cleaned
+    val isCleaned = report.status == "Cleaned"
+    val buttonColor by animateColorAsState(
+        targetValue   = if (isCleaned) Color(0xFF9E9E9E) else GreenPrimary,
+        animationSpec = tween(400),
+        label         = "btn_color"
+    )
 
-        when (report.severity.uppercase()) {
-
-            "HIGH" -> RedSoft
-
-            "MEDIUM" -> YellowSoft
-
-            else -> GreenLight
-        }
+    val severityColor = when (report.severity.uppercase()) {
+        "HIGH"   -> RedSoft
+        "MEDIUM" -> YellowSoft
+        else     -> GreenLight
+    }
 
     Card(
-
-        modifier = Modifier.fillMaxWidth(),
-
-        shape = RoundedCornerShape(24.dp),
-
-        colors = CardDefaults.cardColors(
-            containerColor = CardBg
-        ),
-
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 4.dp
-        )
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(24.dp),
+        colors    = CardDefaults.cardColors(containerColor = CardBg),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
+        Column(modifier = Modifier.padding(14.dp)) {
 
-        Column(
-
-            modifier = Modifier.padding(14.dp)
-        ) {
-
-            // ─────────────────────────────
-            // TOP CONTENT
-            // ─────────────────────────────
             Row(
-
-                modifier = Modifier.fillMaxWidth(),
-
-                horizontalArrangement =
-                    Arrangement.spacedBy(12.dp)
+                modifier              = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
 
-                AsyncImage(
-
-                    model = report.imageUri,
-
-                    contentDescription = null,
-
-                    contentScale = ContentScale.Crop,
-
-                    modifier = Modifier
+                // ✅ Fix 3 — photo box with fallback for Firestore reports
+                // (imageUri is null for reports loaded from cloud)
+                Box(
+                    modifier            = Modifier
                         .size(92.dp)
-                        .clip(
-                            RoundedCornerShape(16.dp)
-                        )
-                )
-
-                Column(
-
-                    modifier = Modifier.weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFFEEEEEE)),
+                    contentAlignment    = Alignment.Center
                 ) {
+                    if (report.imageUri != null) {
+                        AsyncImage(
+                            model              = report.imageUri,
+                            contentDescription = null,
+                            contentScale       = ContentScale.Crop,
+                            modifier           = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        // Fallback for cloud-loaded reports (no local URI)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = when (report.category) {
+                                    "Plastic"  -> "♻️"
+                                    "Organic"  -> "🌿"
+                                    "E-Waste"  -> "🔌"
+                                    "Paper"    -> "📄"
+                                    "Glass"    -> "🪟"
+                                    else       -> "🗑️"
+                                },
+                                fontSize = 28.sp
+                            )
+                            Text(
+                                report.category,
+                                fontSize = 9.sp,
+                                color    = Color.Gray
+                            )
+                        }
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
 
                     Row(
-
-                        modifier = Modifier.fillMaxWidth(),
-
-                        horizontalArrangement =
-                            Arrangement.SpaceBetween,
-
-                        verticalAlignment =
-                            Alignment.Top
+                        modifier              = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.Top
                     ) {
-
                         Text(
-
-                            text = report.category,
-
-                            fontWeight =
-                                FontWeight.Bold,
-
-                            fontSize = 20.sp,
-
-                            color = GreenDark,
-
-                            modifier = Modifier.weight(1f)
+                            report.category,
+                            fontWeight = FontWeight.Bold,
+                            fontSize   = 20.sp,
+                            color      = GreenDark,
+                            modifier   = Modifier.weight(1f)
                         )
-
                         Surface(
-
-                            shape =
-                                RoundedCornerShape(50),
-
+                            shape = RoundedCornerShape(50),
                             color = severityColor
                         ) {
-
                             Text(
-
-                                text =
-                                    "${report.severity} Severity",
-
-                                modifier = Modifier.padding(
-
-                                    horizontal = 10.dp,
-
-                                    vertical = 5.dp
-                                ),
-
-                                fontSize = 11.sp,
-
-                                fontWeight =
-                                    FontWeight.SemiBold,
-
-                                color = GreenDark
+                                "${report.severity} Severity",
+                                modifier   = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                fontSize   = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color      = GreenDark
                             )
                         }
                     }
 
-                    Spacer(
-                        modifier = Modifier.height(10.dp)
-                    )
+                    Spacer(Modifier.height(10.dp))
 
+                    // ✅ Fix 4 — show REAL address from report
                     Text(
-
-                        text =
-                            "📍 Mangaluru, Karnataka",
-
-                        color = Color.Gray,
-
+                        report.address.ifEmpty { "📍 Location not available" },
+                        color    = Color.Gray,
                         fontSize = 13.sp
                     )
 
-                    Spacer(
-                        modifier = Modifier.height(4.dp)
-                    )
+                    Spacer(Modifier.height(4.dp))
 
+                    // ✅ Fix 5 — show real status not hardcoded text
                     Text(
-
-                        text =
-                            "Reported 2 hours ago",
-
-                        color = Color.Gray,
-
-                        fontSize = 12.sp
+                        if (isCleaned) "✅ Marked as Cleaned" else "🕐 Pending cleanup",
+                        color    = if (isCleaned) GreenPrimary else Color.Gray,
+                        fontSize = 12.sp,
+                        fontWeight = if (isCleaned) FontWeight.SemiBold else FontWeight.Normal
                     )
                 }
             }
 
-            Spacer(
-                modifier = Modifier.height(16.dp)
-            )
+            Spacer(Modifier.height(14.dp))
 
-            // ─────────────────────────────
-            // BUTTON
-            // ─────────────────────────────
+            // ✅ Fix 6 — calls ReportStore.markCleaned() which:
+            //   • Updates local status
+            //   • Syncs to Firestore (persists across restarts)
+            //   • Awards +25 Eco-Karma points
             Button(
-
                 onClick = {
-
-                    report.status = "Cleaned"
+                    if (!isCleaned) {
+                        ReportStore.markCleaned(report)
+                    }
                 },
-
+                enabled  = !isCleaned,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
-
-                shape = RoundedCornerShape(50),
-
-                colors =
-                    ButtonDefaults.buttonColors(
-                        containerColor =
-                            GreenPrimary
-                    )
+                shape  = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor         = buttonColor,
+                    disabledContainerColor = Color(0xFFBDBDBD)
+                )
             ) {
-
                 Icon(
-
-                    imageVector =
-                        Icons.Default.CheckCircle,
-
+                    Icons.Default.CheckCircle,
                     contentDescription = null,
-
                     tint = Color.White
                 )
-
-                Spacer(
-                    modifier = Modifier.width(8.dp)
-                )
-
+                Spacer(Modifier.width(8.dp))
                 Text(
-
-                    text = "Mark as Cleaned",
-
-                    fontWeight =
-                        FontWeight.SemiBold,
-
-                    fontSize = 15.sp
+                    if (isCleaned) "Cleaned ✓" else "Mark as Cleaned",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize   = 15.sp,
+                    color      = Color.White
                 )
             }
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Weekly Progress Card — driven by real data
+// ─────────────────────────────────────────────────────────────
 @Composable
-fun WeeklyProgressCard() {
-
+fun WeeklyProgressCard(
+    cleanedCount: Int,
+    weeklyProgress: Float
+) {
     Card(
-
         modifier = Modifier.fillMaxWidth(),
-
-        shape = RoundedCornerShape(24.dp),
-
-        colors = CardDefaults.cardColors(
-            containerColor = GreenLight
-        )
+        shape    = RoundedCornerShape(24.dp),
+        colors   = CardDefaults.cardColors(containerColor = GreenLight)
     ) {
-
         Row(
-
-            modifier = Modifier
+            modifier              = Modifier
                 .fillMaxWidth()
                 .padding(18.dp),
-
-            horizontalArrangement =
-                Arrangement.SpaceBetween,
-
-            verticalAlignment =
-                Alignment.CenterVertically
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment     = Alignment.CenterVertically
         ) {
-
             Column {
-
                 Text(
-
-                    text = "Weekly Progress",
-
-                    fontWeight =
-                        FontWeight.Bold,
-
-                    fontSize = 18.sp,
-
-                    color = GreenDark
+                    "Weekly Progress",
+                    fontWeight = FontWeight.Bold,
+                    fontSize   = 18.sp,
+                    color      = GreenDark
                 )
-
-                Spacer(
-                    modifier = Modifier.height(4.dp)
-                )
-
+                Spacer(Modifier.height(4.dp))
                 Text(
-
-                    text =
-                        "12 cleanup actions this week",
-
-                    color =
-                        GreenDark.copy(alpha = 0.8f),
-
+                    // ✅ Fix 7 — real cleanup count not hardcoded
+                    "$cleanedCount cleanup actions this week",
+                    color    = GreenDark.copy(alpha = 0.8f),
                     fontSize = 13.sp
                 )
             }
 
-            Box(
-                contentAlignment = Alignment.Center
-            ) {
-
+            Box(contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
-
-                    progress = { 0.75f },
-
-                    color = GreenDark,
-
-                    trackColor =
-                        Color.White.copy(alpha = 0.5f),
-
-                    strokeWidth = 7.dp,
-
-                    modifier = Modifier.size(62.dp)
+                    progress      = { weeklyProgress },
+                    color         = GreenDark,
+                    trackColor    = Color.White.copy(alpha = 0.5f),
+                    strokeWidth   = 7.dp,
+                    modifier      = Modifier.size(62.dp)
                 )
-
                 Text(
-
-                    text = "75%",
-
-                    fontWeight =
-                        FontWeight.Bold,
-
-                    color = GreenDark,
-
-                    fontSize = 14.sp
+                    "${(weeklyProgress * 100).toInt()}%",
+                    fontWeight = FontWeight.Bold,
+                    color      = GreenDark,
+                    fontSize   = 14.sp
                 )
             }
         }

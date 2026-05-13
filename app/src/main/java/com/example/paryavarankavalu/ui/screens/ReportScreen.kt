@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.net.Uri
+import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -23,11 +24,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import com.example.paryavarankavalu.data.ReportStore
 import com.example.paryavarankavalu.model.Report
 import com.google.android.gms.location.LocationServices
+import java.io.File
 import java.util.Locale
 
 // ── Colors ────────────────────────────────────────────────────
@@ -36,18 +39,36 @@ private val GreenPrimary = Color(0xFF2E7D32)
 private val BgColor      = Color(0xFFF5EFE6)
 private val CardBg       = Color(0xFFEDE4DA)
 
+// ── Helper — create a temp file URI for camera output ─────────
+fun createImageUri(context: android.content.Context): Uri {
+    val imageFile = File(
+        context.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
+        "waste_${System.currentTimeMillis()}.jpg"
+    )
+    return FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        imageFile
+    )
+}
+
 @Composable
 fun ReportScreen(navController: NavHostController) {
 
     val context = LocalContext.current
 
-    // ── Local UI state ────────────────────────────────────────
+    // ── State ─────────────────────────────────────────────────
     var imageUri         by remember { mutableStateOf<Uri?>(null) }
     var locationText     by remember { mutableStateOf("Fetching location...") }
-    var reportLat        by remember { mutableStateOf(0.0) }    // ✅ GPS lat
-    var reportLng        by remember { mutableStateOf(0.0) }    // ✅ GPS lng
-    var selectedCategory by remember { mutableStateOf("") }     // single selection
+    var reportLat        by remember { mutableStateOf(0.0) }
+    var reportLng        by remember { mutableStateOf(0.0) }
+    var selectedCategory by remember { mutableStateOf("") }
     var selectedSeverity by remember { mutableStateOf("MEDIUM") }
+    var showSourceDialog by remember { mutableStateOf(false) }
+
+    // ── Temp URI for camera capture ───────────────────────────
+    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
+
 
     // ── Location helper ───────────────────────────────────────
     @SuppressLint("MissingPermission")
@@ -57,20 +78,17 @@ fun ReportScreen(navController: NavHostController) {
             .lastLocation
             .addOnSuccessListener { location ->
                 if (location != null) {
-                    reportLat = location.latitude    // ✅ saved for map pin
-                    reportLng = location.longitude   // ✅ saved for map pin
-
+                    reportLat = location.latitude
+                    reportLng = location.longitude
                     val geocoder  = Geocoder(context, Locale.getDefault())
                     val addresses = geocoder.getFromLocation(
                         location.latitude, location.longitude, 1
                     )
-                    if (!addresses.isNullOrEmpty()) {
+                    locationText = if (!addresses.isNullOrEmpty()) {
                         val city  = addresses[0].locality  ?: "Unknown"
                         val state = addresses[0].adminArea ?: ""
-                        locationText = "📍 $city, $state"
-                    } else {
-                        locationText = "📍 Location unavailable"
-                    }
+                        "📍 $city, $state"
+                    } else "📍 Location unavailable"
                 } else {
                     locationText = "📍 Location unavailable"
                 }
@@ -78,26 +96,102 @@ fun ReportScreen(navController: NavHostController) {
     }
 
     // ── Permission launcher ───────────────────────────────────
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) fetchLocation()
+    val locationPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) fetchLocation()
         else locationText = "📍 Permission denied"
     }
 
-    // ── Image picker ──────────────────────────────────────────
-    val imageLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+    // ── Camera launcher ───────────────────────────────────────
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            imageUri = tempCameraUri   // ✅ use captured photo
+        }
+    }
+
+    // ── Camera permission launcher ────────────────────────────
+    val cameraPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val uri = createImageUri(context)  // ← create HERE too
+            tempCameraUri = uri
+            cameraLauncher.launch(uri)
+        }
+    }
+
+    // ── Gallery launcher ──────────────────────────────────────
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
     ) { uri -> imageUri = uri }
 
-    // ── Auto-fetch location on launch ─────────────────────────
+    // ── Auto-fetch location ───────────────────────────────────
     LaunchedEffect(Unit) {
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 
         if (granted) fetchLocation()
-        else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        else locationPermLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+    // ── Camera or Gallery dialog ──────────────────────────────
+    if (showSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showSourceDialog = false },
+            title = {
+                Text(
+                    "Add Photo",
+                    fontWeight = FontWeight.Bold,
+                    color      = GreenDark
+                )
+            },
+            text = {
+                Text(
+                    "Choose how you want to add a photo of the waste",
+                    color = Color.Gray
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSourceDialog = false
+                        val camGranted = ContextCompat.checkSelfPermission(
+                            context, Manifest.permission.CAMERA
+                        ) == PackageManager.PERMISSION_GRANTED
+
+                        if (camGranted) {
+                            val uri = createImageUri(context)  // ← create HERE only
+                            tempCameraUri = uri
+                            cameraLauncher.launch(uri)
+                        } else {
+                            cameraPermLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = GreenPrimary),
+                    shape  = RoundedCornerShape(12.dp)
+                ) {
+                    Text("📷  Camera")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        showSourceDialog = false
+                        galleryLauncher.launch("image/*")
+                    },
+                    shape  = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = GreenPrimary)
+                ) {
+                    Text("🖼  Gallery")
+                }
+            },
+            shape             = RoundedCornerShape(20.dp),
+            containerColor    = Color.White
+        )
     }
 
     // ─────────────────────────────────────────────────────────
@@ -153,7 +247,8 @@ fun ReportScreen(navController: NavHostController) {
                     .height(220.dp),
                 shape  = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = CardBg),
-                onClick = { imageLauncher.launch("image/*") }
+                // ✅ Tap shows Camera / Gallery dialog
+                onClick = { showSourceDialog = true }
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (imageUri == null) {
@@ -161,11 +256,32 @@ fun ReportScreen(navController: NavHostController) {
                             Text("📷", fontSize = 36.sp)
                             Spacer(Modifier.height(8.dp))
                             Text("Capture Waste", fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Tap to take or choose a photo",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
-                            )
+                            Spacer(Modifier.height(4.dp))
+                            // ✅ Show both options hint
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.6f)
+                                ) {
+                                    Text(
+                                        "Camera",
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        fontSize = 11.sp,
+                                        color    = GreenDark
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color.White.copy(alpha = 0.6f)
+                                ) {
+                                    Text(
+                                        "Gallery",
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        fontSize = 11.sp,
+                                        color    = GreenDark
+                                    )
+                                }
+                            }
                         }
                     } else {
                         AsyncImage(
@@ -173,6 +289,26 @@ fun ReportScreen(navController: NavHostController) {
                             contentDescription = "Selected waste image",
                             modifier           = Modifier.fillMaxSize()
                         )
+                        // Retake button overlay
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
+                        ) {
+                            Surface(
+                                onClick = { showSourceDialog = true },
+                                shape   = RoundedCornerShape(20.dp),
+                                color   = Color.Black.copy(alpha = 0.6f)
+                            ) {
+                                Text(
+                                    "📷 Retake",
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    fontSize = 12.sp,
+                                    color    = Color.White,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -217,7 +353,7 @@ fun ReportScreen(navController: NavHostController) {
                             colors = CardDefaults.cardColors(
                                 containerColor = if (isSelected) GreenPrimary else Color.White
                             ),
-                            onClick = { selectedCategory = item }   // ✅ single tap selects
+                            onClick = { selectedCategory = item }
                         ) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
@@ -330,12 +466,12 @@ fun ReportScreen(navController: NavHostController) {
                 val report = Report(
                     imageUri = imageUri,
                     category = selectedCategory,
-                    severity = selectedSeverity,   // ✅ real severity (not "PENDING")
-                    lat      = reportLat,           // ✅ GPS lat → shows on map
-                    lng      = reportLng,           // ✅ GPS lng → shows on map
+                    severity = selectedSeverity,
+                    lat      = reportLat,
+                    lng      = reportLng,
                     address  = locationText
                 )
-                ReportStore.addReport(report)       // ✅ triggers karma points
+                ReportStore.addReport(report)
                 navController.navigate("success")
             },
             enabled = imageUri != null && selectedCategory.isNotEmpty(),
